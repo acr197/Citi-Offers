@@ -34,3 +34,4 @@ Applicable for orgs looking to reduce low-value manual labor in any browser UIâ€
 - Every line of code was AI-assisted, demonstrating real-world prompt engineering
 - Login uses your browser profile instead of storing raw credentials in code
 - Script tracks real-time outcomes, not just automation events
+  
