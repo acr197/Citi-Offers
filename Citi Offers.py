@@ -51,7 +51,7 @@ print("# constants loaded")
 def _ws(sheet, title: str, headers: Tuple[str, ...]):
     ws = sheet.worksheet(title) if title in [w.title for w in sheet.worksheets()] \
          else sheet.add_worksheet(title=title, rows=2000, cols=len(headers))
-    if ws.row_count < 1:
+    if not ws.row_values(1):
         ws.append_row(list(headers), value_input_option="RAW")
     return ws
 print("# _ws loaded")
