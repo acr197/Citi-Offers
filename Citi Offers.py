@@ -2,13 +2,16 @@
 # Section: Imports
 # ---------------------------------------------------------------------------
 # Standard library and typing tools
-import os, sys, re, time, json
+import os
+import re
+import sys
+import time
 from datetime import datetime
 from typing import List, Set, Tuple, Optional
 
+import gspread
 # Third-party dependencies
 from dotenv import load_dotenv
-import gspread
 from google.oauth2.service_account import Credentials
 from selenium import webdriver
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
