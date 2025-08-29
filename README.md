@@ -1,7 +1,7 @@
-# Offer Auto-Enroller (LLM-Assisted Browser Automation)
+# Citi-Offers (Manual Offer Adder)
 
 ## Overview
-This script automates the process of logging into a credit card account and enrolling in available offers through a browser. It was fully built using ChatGPT to demonstrate how LLMs can be used to create real automations without formal coding experience.
+This script helps you enroll in Citi card offers and log them to a Google Sheet. You manually log in and navigate to the offers page, and the script clicks each offer and records it.
 
 ## Tech Used
 - ChatGPT (AI-assisted development)
@@ -12,11 +12,10 @@ This script automates the process of logging into a credit card account and enro
 ## How It Works
 The script:
 - Launches a browser (Chrome/Brave) using secure user-profile storage
-- Navigates to the card portal and performs login using locally stored credentials
-- Scans and clicks all eligible offers, adapting to dynamic layout changes
+- Waits for you to log in and open the offers page
+- Scans and clicks all eligible offers, adapting to layout changes
 - Logs enrolled offers to a connected Google Sheet to track which cards received which offers
-- Includes basic error handling and fallback logic if pages fail to load, accounts have no offers, or login fails
-- Supports multiple cards and changing offer counts across sessions
+- Includes basic error handling and fallback logic if pages fail to load or accounts have no offers
 
 ## Why I Built It
 This task used to require manually checking and activating offers across multiple cards. I used an LLM to walk through each coding step, building a tool that now completes the task in seconds. It’s a personal automation with lessons that scale to workplace use cases.
