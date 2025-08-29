@@ -37,7 +37,7 @@ def require_file(path: str, description: str) -> str:
 print("# require_file loaded – verifies critical paths")
 
 # ---------------------------------------------------------------------------
-# Section: Constants & Accounts
+# Section: Constants & Configuration
 # ---------------------------------------------------------------------------
 # Resolve project root so relative paths work inside PyCharm
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -45,23 +45,12 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # Load .env variables
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
-# Assemble Citi account credentials from .env
-ACCOUNTS: list[dict] = []
-idx = 1
-while os.getenv(f"CITI_USERNAME_{idx}"):
-    ACCOUNTS.append({
-        "user":   os.getenv(f"CITI_USERNAME_{idx}"),
-        "pass":   os.getenv(f"CITI_PASSWORD_{idx}"),
-        "holder": os.getenv(f"CITI_HOLDER_{idx}", f"Holder {idx}")
-    })
-    idx += 1
-if not ACCOUNTS:
-    sys.exit("No Citi accounts found in .env – aborting")
+# Card holder name for logging
+HOLDER_NAME = os.getenv("CITI_HOLDER", "Primary")
 
-LOGIN_URL  = "https://online.citi.com/US/login.do"
 OFFERS_URL = "https://online.citi.com/US/ag/products-offers/merchantoffers"
 SECOND_MONITOR_OFFSET = (3440, 0)
-print("# constants loaded – accounts & URLs configured")
+print("# constants loaded – URLs configured")
 
 # ---------------------------------------------------------------------------
 # Section: Google-Sheets Setup
@@ -165,31 +154,8 @@ print("# build_driver loaded – Selenium factory ready")
 
 driver, wait = build_driver()
 # ---------------------------------------------------------------------------
-# Section: Login / Logout Helpers
+# Section: Session Helpers
 # ---------------------------------------------------------------------------
-# Perform one login attempt with optional pause between keystrokes
-def login_once(username: str, password: str, pause: float) -> None:
-    """Submit credentials once; pause adjusts typing delay."""
-    driver.get(LOGIN_URL)
-    wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(
-        username)
-    time.sleep(pause)
-    wait.until(EC.presence_of_element_located((By.ID, "password"))).send_keys(
-        password)
-    time.sleep(pause)
-    wait.until(EC.element_to_be_clickable((
-        By.XPATH,
-        "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-        "'abcdefghijklmnopqrstuvwxyz'),'sign on')]"))).click()
-print("# login_once loaded – single sign-on ready")
-
-# Determine if post-login page is loaded
-def logged_in() -> bool:
-    """Return True when dashboard or offers page is detected."""
-    u = driver.current_url
-    return "/dashboard" in u or "merchantoffers" in u
-print("# logged_in loaded – post-login tester ready")
-
 # Skip Citi upsell/special-offer interstitial if present
 def skip_interstitial() -> None:
     """Dismiss upsell interstitial and land on offers page."""
@@ -208,24 +174,6 @@ def skip_interstitial() -> None:
         if "offerintr" in driver.current_url:
             driver.get(OFFERS_URL)
 print("# skip_interstitial loaded – upsell bypass ready")
-
-# Attempt fast and slow login; log result
-def citi_login(username: str, password: str) -> bool:
-    """Try two login speeds; log outcome; return success flag."""
-    for pause in (0.1, 1.0):
-        login_once(username, password, pause)
-        try:
-            wait.until(lambda _: logged_in() or "login" in driver.current_url,
-                       10)
-        except Exception:
-            pass
-        if logged_in():
-            skip_interstitial()
-            sheet_log("INFO", "login", f"{username} success")
-            return True
-    sheet_log("ERROR", "login", f"{username} failed")
-    return False
-print("# citi_login loaded – dual-pace login ready")
 
 # Sign out and clear cookies
 def citi_logout() -> None:
@@ -256,23 +204,22 @@ print("# ready/banner helpers loaded – page state testers ready")
 
 # Navigate to offers page with retries
 def visit_offers_page() -> bool:
-    """Open Merchant Offers; retry three times on banner error."""
+    """Open Merchant Offers and wait for manual login if required."""
     driver.get(OFFERS_URL)
-    for attempt in range(1, 4):
-        try:
-            wait.until(lambda _: offers_ready() or error_banner_visible(), 15)
-        except Exception:
-            pass
+    print("Please log in manually if prompted… waiting for offers page")
+    for attempt in range(300):  # wait up to ~5 minutes
         if offers_ready():
-            sheet_log("INFO", "nav", f"offers ready (try {attempt})")
+            skip_interstitial()
+            sheet_log("INFO", "nav", "offers ready")
             return True
         if error_banner_visible():
             sheet_log("WARN", "nav", f"banner error (try {attempt})")
             driver.refresh()
             time.sleep(2)
-    sheet_log("ERROR", "nav", "banner persisted 3× – abort account")
+        time.sleep(1)
+    sheet_log("ERROR", "nav", "offers page timeout")
     return False
-print("# visit_offers_page loaded – resilient loader ready")
+print("# visit_offers_page loaded – manual navigation ready")
 
 # ---------------------------------------------------------------------------
 # Section: Offer Helpers & Modal Handling
@@ -446,13 +393,9 @@ print("# scrape_card loaded – single card scraper ready")
 # ---------------------------------------------------------------------------
 # Section: Account-Level Scrape
 # ---------------------------------------------------------------------------
-# Run full scrape for every card in one account
-def scrape_account(acct: dict) -> Set[Tuple]:
-    """Login, scrape each card, logout; return set of rows seen."""
-    user, pwd, holder = acct["user"], acct["pass"], acct["holder"]
-    if not citi_login(user, pwd):
-        return set()
-
+# Run full scrape for the currently logged-in account
+def scrape_account(holder: str) -> Set[Tuple]:
+    """Wait for offers page, scrape each card, logout; return rows seen."""
     if not visit_offers_page():
         citi_logout()
         return set()
@@ -523,14 +466,15 @@ print("# dedupe_rows loaded – duplicate remover ready")
 def reset_filters() -> None:
     """Clear and re-apply basic filter to refresh list options."""
     sid = OFFER_WS._properties["sheetId"]
+    end = len(OFFER_WS.get_all_values())
     requests = [
         {"clearBasicFilter": {"sheetId": sid}},
         {"setBasicFilter": {"filter": {
-            "range": {"sheetId": sid, "startRowIndex": 0, "endRowIndex": 1}
+            "range": {"sheetId": sid, "startRowIndex": 0, "endRowIndex": end}
         }}},
     ]
     OFFER_WS.spreadsheet.batch_update({"requests": requests})
-    sheet_log("INFO", "reset_filters", "basic filter toggled")
+    sheet_log("INFO", "reset_filters", "basic filter refreshed")
 print("# reset_filters loaded – filter reset ready")
 
 # ---------------------------------------------------------------------------
@@ -550,14 +494,11 @@ print("# safe_quit loaded – graceful driver terminator ready")
 # ---------------------------------------------------------------------------
 # Orchestrate entire workflow for all accounts
 def main() -> None:
-    """Run scraper for all accounts; clean sheet; exit browser gracefully."""
-    all_rows: Set[Tuple] = set()
-    for acct in ACCOUNTS:
-        sheet_log("INFO", "account", f"start {acct['holder']}")
-        rows = scrape_account(acct)
-        all_rows.update(rows)
-
-    clean_sheet(all_rows)
+    """Run scraper for current session; clean sheet; exit browser."""
+    holder = input("Card holder name: ").strip() or HOLDER_NAME
+    sheet_log("INFO", "account", f"start {holder}")
+    rows = scrape_account(holder)
+    clean_sheet(rows)
     dedupe_rows()
     reset_filters()
     sheet_log("INFO", "main", "COMPLETE")
